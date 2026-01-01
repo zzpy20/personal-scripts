@@ -1,0 +1,33 @@
+name: Auto-update README file tree
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-tree:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: sudo apt-get update && sudo apt-get install -y tree
+
+      - name: Update README.md
+        run: |
+          set -e
+
+          START="<!-- FILE_TREE_START -->"
+          END="<!-- FILE_TREE_END -->"
+
+          TREE="$(tree -a -I '.git|.github' -L 2)"
+
+          perl -0777 -i -pe "s|\Q$START\E.*?\Q$END\E|$START\n```\n$TREE\n```\n$END|s" README.md
+
+      - uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: auto-update file tree"
+          file_pattern: README.md
