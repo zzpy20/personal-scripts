@@ -17,16 +17,35 @@ jobs:
       - name: Install tree
         run: sudo apt-get update && sudo apt-get install -y tree
 
+      - name: Generate tree (debug)
+        run: |
+          set -euo pipefail
+          echo "=== PWD ==="
+          pwd
+          echo "=== LS ==="
+          ls -la
+          echo "=== TREE OUTPUT (will be inserted) ==="
+          tree -a -L 2 -I '.git|.github|node_modules|.DS_Store' || true
+
       - name: Update README.md
         run: |
-          set -e
+          set -euo pipefail
 
           START="<!-- FILE_TREE_START -->"
           END="<!-- FILE_TREE_END -->"
 
           TREE="$(tree -a -L 2 -I '.git|.github|node_modules|.DS_Store')"
 
-          perl -0777 -i -pe "s|$START.*?$END|$START\n```text\n$TREE\n```\n$END|s" README.md
+          # Show what we're about to inject (first 2000 chars)
+          echo "=== TREE VAR (first 2000 chars) ==="
+          printf "%s\n" "$TREE" | head -c 2000
+          echo ""
+
+          # Replace block strictly between markers
+          perl -0777 -i -pe "s/\Q$START\E.*?\Q$END\E/$START\n```text\n$TREE\n```\n$END/s" README.md
+
+          echo "=== README AFTER UPDATE (FILE_TREE block) ==="
+          perl -0777 -ne 'print $1 if /<!-- FILE_TREE_START -->(.*?)<!-- FILE_TREE_END -->/s' README.md
 
       - uses: stefanzweifel/git-auto-commit-action@v5
         with:
