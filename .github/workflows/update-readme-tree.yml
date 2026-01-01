@@ -1,4 +1,4 @@
-name: Auto-update README (homepage + tools + tree)
+name: Auto-update README (tools + links + tree)
 
 on:
   push:
@@ -28,21 +28,24 @@ jobs:
           NAME="${REPO#*/}"
           PAGES_BASE="https://${OWNER}.github.io/${NAME}/"
 
-          # Homepage (index.html) link
-          HOMEPAGE_LINE="👉 **Homepage:** [Open ${PAGES_BASE}]( ${PAGES_BASE} )"
-          # Note: we’ll format it cleanly in the README block below (without extra spaces)
-          echo "$PAGES_BASE" > PAGES_BASE.txt
+          echo "=== PAGES BASE ==="
+          echo "$PAGES_BASE"
 
-          # Tools list from *.html (excluding index.html)
+          echo "=== HTML FILES FOUND ==="
+          find . -maxdepth 1 -type f -name "*.html" -printf "%f\n" | sort || true
+
+          # Build tools markdown list from *.html (excluding index.html)
           TOOLS_MD_FILE="TOOLS_SECTION.md"
           : > "$TOOLS_MD_FILE"
 
           while IFS= read -r f; do
             [[ -z "$f" ]] && continue
-            [[ "$f" == "index.html" ]] && continue
+            if [[ "$f" == "index.html" ]]; then
+              continue
+            fi
 
             title="${f%.html}"
-            url="${f// /%20}"   # encode spaces only (matches your current filenames)
+            url="${f// /%20}"   # encode spaces for your current filenames
 
             printf -- "- **%s** — [Open](%s%s)\n" "$title" "$PAGES_BASE" "$url" >> "$TOOLS_MD_FILE"
           done < <(find . -maxdepth 1 -type f -name "*.html" -printf "%f\n" | sort)
@@ -51,36 +54,31 @@ jobs:
             echo "(No HTML tools found)" > "$TOOLS_MD_FILE"
           fi
 
-          # File tree (hide noise)
+          # Build tree (hide noisy files)
           TREE_FILE="TREE_SECTION.txt"
           tree -a -L 2 -I '.git|.github|node_modules|.DS_Store|README.md|LICENSE' > "$TREE_FILE"
 
+          echo "=== TOOLS SECTION PREVIEW ==="
+          cat "$TOOLS_MD_FILE"
+
+          echo "=== TREE SECTION PREVIEW ==="
+          cat "$TREE_FILE"
+
       - name: Update README.md (rebuild blocks)
+        env:
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
 
-          PAGES_BASE="$(cat PAGES_BASE.txt)"
-          TOOLS_CONTENT="$(cat TOOLS_SECTION.md)"
-          TREE_CONTENT="$(cat TREE_SECTION.txt)"
-
-          HOME_START="<!-- HOME_START -->"
-          HOME_END="<!-- HOME_END -->"
           TOOLS_START="<!-- TOOLS_START -->"
           TOOLS_END="<!-- TOOLS_END -->"
           TREE_START="<!-- FILE_TREE_START -->"
           TREE_END="<!-- FILE_TREE_END -->"
 
-          # Ensure markers exist; append defaults if missing
-          if ! grep -qF "$HOME_START" README.md || ! grep -qF "$HOME_END" README.md; then
-            # Put homepage block at end if missing; user template should place it at top
-            cat >> README.md <<'EOF'
+          TOOLS_CONTENT="$(cat TOOLS_SECTION.md)"
+          TREE_CONTENT="$(cat TREE_SECTION.txt)"
 
-          <!-- HOME_START -->
-          (auto-generated)
-          <!-- HOME_END -->
-          EOF
-          fi
-
+          # Ensure markers exist; append a default template if missing
           if ! grep -qF "$TOOLS_START" README.md || ! grep -qF "$TOOLS_END" README.md; then
             cat >> README.md <<'EOF'
 
@@ -105,31 +103,43 @@ jobs:
           EOF
           fi
 
-          HOME_CONTENT="👉 **Homepage:** [Open ${PAGES_BASE}]( ${PAGES_BASE} )"
-          # Clean up the markdown link (remove spaces inside parentheses)
-          HOME_CONTENT="$(echo "$HOME_CONTENT" | sed "s/( ${PAGES_BASE} )/(${PAGES_BASE})/")"
-
-          # Rebuild README deterministically
-          awk -v hs="$HOME_START" -v he="$HOME_END" \
-              -v ts="$TOOLS_START" -v te="$TOOLS_END" \
+          # Rebuild README with awk, replacing each block deterministically
+          awk -v ts="$TOOLS_START" -v te="$TOOLS_END" \
               -v fs="$TREE_START"  -v fe="$TREE_END" \
-              -v home="$HOME_CONTENT" -v tools="$TOOLS_CONTENT" -v tree="$TREE_CONTENT" '
-            BEGIN {in_home=0; in_tools=0; in_tree=0}
+              -v tools="$TOOLS_CONTENT" -v tree="$TREE_CONTENT" '
+            BEGIN {in_tools=0; in_tree=0}
 
-            $0==hs { print; print home;  in_home=1;  next }
-            $0==he { in_home=0;  print; next }
+            $0==ts {
+              print;
+              print tools;
+              in_tools=1;
+              next
+            }
+            $0==te {
+              in_tools=0;
+              print;
+              next
+            }
 
-            $0==ts { print; print tools; in_tools=1; next }
-            $0==te { in_tools=0; print; next }
+            $0==fs {
+              print;
+              print "```text";
+              print tree;
+              print "```";
+              in_tree=1;
+              next
+            }
+            $0==fe {
+              in_tree=0;
+              print;
+              next
+            }
 
-            $0==fs { print; print "```text"; print tree; print "```"; in_tree=1; next }
-            $0==fe { in_tree=0; print; next }
-
-            (in_home==0 && in_tools==0 && in_tree==0) { print }
+            (in_tools==0 && in_tree==0) { print }
           ' README.md > README.tmp && mv README.tmp README.md
 
       - name: Commit changes
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "chore: auto-update README (homepage + tools + tree)"
+          commit_message: "chore: auto-update README (tools + tree)"
           file_pattern: README.md
