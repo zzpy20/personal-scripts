@@ -1,4 +1,4 @@
-name: Auto-update README file tree
+name: Auto-update README (tools + links + tree)
 
 on:
   push:
@@ -18,27 +18,79 @@ jobs:
       - name: Install tree
         run: sudo apt-get update && sudo apt-get install -y tree
 
-      - name: Generate tree (debug)
-        run: |
-          set -euo pipefail
-          echo "=== PWD ==="
-          pwd
-          echo "=== FILE LIST ==="
-          ls -la
-          echo "=== TREE OUTPUT ==="
-          tree -a -L 2 -I '.git|.github|node_modules|.DS_Store' || true
-
-      - name: Update README.md
+      - name: Generate content
+        env:
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
 
-          START="<!-- FILE_TREE_START -->"
-          END="<!-- FILE_TREE_END -->"
+          OWNER="${REPO%/*}"
+          NAME="${REPO#*/}"
+          PAGES_BASE="https://${OWNER}.github.io/${NAME}/"
 
-          TREE="$(tree -a -L 2 -I '.git|.github|node_modules|.DS_Store')"
+          echo "=== PAGES BASE ==="
+          echo "$PAGES_BASE"
 
-          # If markers do not exist, append a standard block
-          if ! grep -qF "$START" README.md || ! grep -qF "$END" README.md; then
+          echo "=== HTML FILES FOUND ==="
+          find . -maxdepth 1 -type f -name "*.html" -printf "%f\n" | sort || true
+
+          # Build tools markdown list from *.html (excluding index.html)
+          TOOLS_MD_FILE="TOOLS_SECTION.md"
+          : > "$TOOLS_MD_FILE"
+
+          while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
+            if [[ "$f" == "index.html" ]]; then
+              continue
+            fi
+
+            title="${f%.html}"
+            url="${f// /%20}"   # encode spaces for your current filenames
+
+            printf -- "- **%s** — [Open](%s%s)\n" "$title" "$PAGES_BASE" "$url" >> "$TOOLS_MD_FILE"
+          done < <(find . -maxdepth 1 -type f -name "*.html" -printf "%f\n" | sort)
+
+          if [[ ! -s "$TOOLS_MD_FILE" ]]; then
+            echo "(No HTML tools found)" > "$TOOLS_MD_FILE"
+          fi
+
+          # Build tree (hide noisy files)
+          TREE_FILE="TREE_SECTION.txt"
+          tree -a -L 2 -I '.git|.github|node_modules|.DS_Store|README.md|LICENSE' > "$TREE_FILE"
+
+          echo "=== TOOLS SECTION PREVIEW ==="
+          cat "$TOOLS_MD_FILE"
+
+          echo "=== TREE SECTION PREVIEW ==="
+          cat "$TREE_FILE"
+
+      - name: Update README.md (rebuild blocks)
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          TOOLS_START="<!-- TOOLS_START -->"
+          TOOLS_END="<!-- TOOLS_END -->"
+          TREE_START="<!-- FILE_TREE_START -->"
+          TREE_END="<!-- FILE_TREE_END -->"
+
+          TOOLS_CONTENT="$(cat TOOLS_SECTION.md)"
+          TREE_CONTENT="$(cat TREE_SECTION.txt)"
+
+          # Ensure markers exist; append a default template if missing
+          if ! grep -qF "$TOOLS_START" README.md || ! grep -qF "$TOOLS_END" README.md; then
+            cat >> README.md <<'EOF'
+
+          ## 🌐 Live Tools (GitHub Pages)
+
+          <!-- TOOLS_START -->
+          (auto-generated)
+          <!-- TOOLS_END -->
+          EOF
+          fi
+
+          if ! grep -qF "$TREE_START" README.md || ! grep -qF "$TREE_END" README.md; then
             cat >> README.md <<'EOF'
 
           ## 📁 File Structure
@@ -51,27 +103,43 @@ jobs:
           EOF
           fi
 
-          # Rebuild README by replacing content strictly between markers
-          awk -v start="$START" -v end="$END" -v tree="$TREE" '
-            BEGIN {inblock=0}
-            $0==start {
+          # Rebuild README with awk, replacing each block deterministically
+          awk -v ts="$TOOLS_START" -v te="$TOOLS_END" \
+              -v fs="$TREE_START"  -v fe="$TREE_END" \
+              -v tools="$TOOLS_CONTENT" -v tree="$TREE_CONTENT" '
+            BEGIN {in_tools=0; in_tree=0}
+
+            $0==ts {
+              print;
+              print tools;
+              in_tools=1;
+              next
+            }
+            $0==te {
+              in_tools=0;
+              print;
+              next
+            }
+
+            $0==fs {
               print;
               print "```text";
               print tree;
               print "```";
-              inblock=1;
+              in_tree=1;
               next
             }
-            $0==end {
-              inblock=0;
+            $0==fe {
+              in_tree=0;
               print;
               next
             }
-            inblock==0 { print }
+
+            (in_tools==0 && in_tree==0) { print }
           ' README.md > README.tmp && mv README.tmp README.md
 
       - name: Commit changes
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "chore: auto-update README file tree"
+          commit_message: "chore: auto-update README (tools + tree)"
           file_pattern: README.md
