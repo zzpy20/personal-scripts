@@ -16,16 +16,31 @@ jobs:
 
       - run: sudo apt-get update && sudo apt-get install -y tree
 
-      - name: Update README.md
+      - name: Update README.md (replace block; append if missing)
         run: |
-          set -e
+          set -euo pipefail
 
           START="<!-- FILE_TREE_START -->"
           END="<!-- FILE_TREE_END -->"
 
-          TREE="$(tree -a -I '.git|.github' -L 2)"
+          TREE="$(tree -a -L 2 -I '.git|node_modules' | sed 's/\r$//')"
 
-          perl -0777 -i -pe "s|\Q$START\E.*?\Q$END\E|$START\n```\n$TREE\n```\n$END|s" README.md
+          # Ensure markers exist; if not, append a new section
+          if ! grep -qF "$START" README.md || ! grep -qF "$END" README.md; then
+            cat >> README.md <<'EOF'
+
+          ## 📁 File Structure
+
+          <!-- FILE_TREE_START -->
+          ```text
+          (auto-generated)
+          ```
+          <!-- FILE_TREE_END -->
+          EOF
+          fi
+
+          # Replace content between markers
+          perl -0777 -i -pe 'BEGIN{$/ = undef} s/<!-- FILE_TREE_START -->.*?<!-- FILE_TREE_END -->/<!-- FILE_TREE_START -->\n```text\n'"$TREE"'\n```\n<!-- FILE_TREE_END -->/s' README.md
 
       - uses: stefanzweifel/git-auto-commit-action@v5
         with:
