@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Firefox JSON Bookmarks Viewer</title>
+    <style>
+        :root {
+            --bg-color: #f9f9fb;
+            --sidebar-bg: #fff;
+            --text-color: #333;
+            --accent-color: #0060df;
+            --hover-color: #e0e0e6;
+            --folder-icon-color: #ffe066;
+            --font-stack: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            font-family: var(--font-stack);
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+            box-sizing: border-box;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+
+        .controls {
+            margin-bottom: 20px;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        input[type="file"] {
+            border: 1px solid #ccc;
+            padding: 8px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        #viewer {
+            width: 100%;
+            max-width: 900px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            overflow: hidden;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #tree-container {
+            padding: 20px;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        /* Tree Styles */
+        ul {
+            list-style: none;
+            padding-left: 20px;
+            margin: 0;
+        }
+
+        li {
+            margin: 2px 0;
+        }
+
+        /* Items (Folders and Bookmarks) */
+        .item {
+            display: flex;
+            align-items: center;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: default;
+            font-size: 14px;
+            line-height: 20px;
+            color: var(--text-color);
+            text-decoration: none;
+            transition: background 0.1s;
+        }
+
+        .item:hover {
+            background-color: var(--hover-color);
+        }
+
+        /* Icons */
+        .icon {
+            width: 16px;
+            height: 16px;
+            margin-right: 8px;
+            flex-shrink: 0;
+        }
+
+        /* Folders */
+        .folder-summary {
+            cursor: pointer;
+            user-select: none;
+            font-weight: 500;
+        }
+        
+        /* Native HTML Details/Summary styling reset */
+        details > summary {
+            list-style: none;
+        }
+        details > summary::-webkit-details-marker {
+            display: none;
+        }
+
+        /* Custom twisty arrow */
+        .arrow {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            margin-right: 4px;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%23666'%3E%3Cpath d='M6 4l5 4-5 4z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: center;
+            transition: transform 0.15s ease;
+        }
+
+        details[open] > summary .arrow {
+            transform: rotate(90deg);
+        }
+
+        /* Folder Icon */
+        .folder-icon {
+            fill: var(--folder-icon-color);
+            stroke: #daa520; /* Darker golden border */
+            stroke-width: 0.5px;
+        }
+
+        /* Bookmark Icon */
+        .bookmark-icon {
+            fill: #999;
+        }
+
+        /* Links */
+        a.item {
+            cursor: pointer;
+            color: var(--text-color);
+        }
+        a.item:hover {
+            color: var(--accent-color);
+            text-decoration: none;
+        }
+        
+        .empty-msg {
+            text-align: center;
+            color: #888;
+            margin-top: 50px;
+        }
+
+        .meta {
+            margin-left: auto;
+            font-size: 12px;
+            color: #999;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Firefox Bookmarks Viewer</h1>
+    </header>
+
+    <div class="controls">
+        <label for="fileInput">Select JSON file:</label>
+        <input type="file" id="fileInput" accept=".json">
+    </div>
+
+    <div id="viewer">
+        <div id="tree-container">
+            <div class="empty-msg">No bookmarks loaded. Upload a Firefox .json backup to view.</div>
+        </div>
+    </div>
+
+    <!-- SVGs for icons -->
+    <svg style="display: none;">
+        <symbol id="icon-folder" viewBox="0 0 24 24">
+            <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+        </symbol>
+        <symbol id="icon-globe" viewBox="0 0 24 24">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+        </symbol>
+        <symbol id="icon-separator" viewBox="0 0 24 24">
+             <path fill="none" stroke="#ccc" stroke-width="2" d="M2 12h20" />
+        </symbol>
+    </svg>
+
+    <script>
+        const fileInput = document.getElementById('fileInput');
+        const treeContainer = document.getElementById('tree-container');
+
+        fileInput.addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const json = JSON.parse(e.target.result);
+                    treeContainer.innerHTML = ''; // Clear existing
+                    renderRoot(json);
+                } catch (err) {
+                    alert('Error parsing JSON: ' + err.message);
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        function renderRoot(json) {
+            const ul = document.createElement('ul');
+            // Firefox JSON usually starts with a root object that contains children (Menu, Toolbar, etc)
+            // Sometimes the top level is a folder itself with children
+            
+            if (json.children && Array.isArray(json.children)) {
+                json.children.forEach(child => {
+                    const li = createNode(child);
+                    if (li) ul.appendChild(li);
+                });
+            } else {
+                // If it's a single node structure
+                const li = createNode(json);
+                if (li) ul.appendChild(li);
+            }
+            treeContainer.appendChild(ul);
+        }
+
+        function createNode(node) {
+            // Type definition in Firefox JSON:
+            // text/x-moz-place-container = Folder
+            // text/x-moz-place = Bookmark
+            // text/x-moz-place-separator = Separator
+            
+            const isFolder = node.type === 'text/x-moz-place-container';
+            const isSeparator = node.type === 'text/x-moz-place-separator';
+            const li = document.createElement('li');
+
+            if (isSeparator) {
+                li.innerHTML = `<div class="item" style="height: 1px; border-bottom: 1px solid #e0e0e0; margin: 8px 0;"></div>`;
+                return li;
+            }
+
+            if (isFolder) {
+                // FOLDER
+                const details = document.createElement('details');
+                // Open standard roots by default (Menu, Toolbar, Unsorted)
+                const isRootFolder = ['menu________', 'toolbar_____', 'unfiled_____', 'mobile______'].includes(node.guid);
+                if (isRootFolder) details.open = true;
+
+                const summary = document.createElement('summary');
+                summary.className = 'item folder-summary';
+                
+                // Icon + Title
+                summary.innerHTML = `
+                    <span class="arrow"></span>
+                    <svg class="icon folder-icon"><use href="#icon-folder"></use></svg>
+                    <span>${escapeHtml(node.title || "(No Title)")}</span>
+                `;
+
+                details.appendChild(summary);
+
+                // Children
+                if (node.children && node.children.length > 0) {
+                    const ul = document.createElement('ul');
+                    node.children.forEach(child => {
+                        const childLi = createNode(child);
+                        if (childLi) ul.appendChild(childLi);
+                    });
+                    details.appendChild(ul);
+                } else {
+                    // Empty folder placeholder
+                    const ul = document.createElement('ul');
+                    ul.innerHTML = `<li class="item" style="color:#999; font-style:italic; padding-left:48px;">(Empty)</li>`;
+                    details.appendChild(ul);
+                }
+
+                li.appendChild(details);
+
+            } else {
+                // BOOKMARK
+                const a = document.createElement('a');
+                a.className = 'item';
+                a.href = node.uri || '#';
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+
+                // Try to format date if available
+                let dateStr = "";
+                if (node.dateAdded) {
+                    // Firefox timestamps are microseconds
+                    const date = new Date(node.dateAdded / 1000);
+                    dateStr = date.toLocaleDateString();
+                }
+
+                a.innerHTML = `
+                    <span style="width:16px; margin-right:4px;"></span> <!-- spacer for indentation alignment with folder arrow -->
+                    <svg class="icon bookmark-icon"><use href="#icon-globe"></use></svg>
+                    <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(node.title || node.uri)}</span>
+                    ${dateStr ? `<span class="meta">${dateStr}</span>` : ''}
+                `;
+                
+                li.appendChild(a);
+            }
+
+            return li;
+        }
+
+        // Security utility to prevent XSS
+        function escapeHtml(text) {
+            if (!text) return text;
+            return text
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+    </script>
+</body>
+</html>

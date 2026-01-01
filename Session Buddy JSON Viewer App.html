@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Session Viewer - Pro Editor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .link-row:hover { background-color: #f3f4f6; }
+        .link-row:hover .url-text { opacity: 1; }
+        .link-row:hover .delete-single { opacity: 1; }
+        .url-text { opacity: 0.6; transition: opacity 0.2s; }
+        .delete-single { opacity: 0; transition: opacity 0.2s; color: #ef4444; cursor: pointer; }
+        @media print { .no-print { display: none; } }
+    </style>
+</head>
+<body class="bg-white min-h-screen font-sans text-slate-800">
+
+    <div class="max-w-6xl mx-auto p-4 md:p-10">
+        <!-- Upload Zone -->
+        <div id="uploadArea" class="no-print mb-8 border-2 border-dashed border-slate-200 rounded-xl p-10 text-center cursor-pointer hover:bg-slate-50">
+            <input type="file" id="fileInput" accept=".json" class="hidden">
+            <p class="text-slate-500 font-medium">Drag & Drop Session Buddy JSON here</p>
+            <p class="text-xs text-slate-400 mt-2">Collections or Session History exports</p>
+        </div>
+
+        <!-- Toolbar -->
+        <div id="controls" class="hidden no-print mb-10">
+            <div class="flex flex-wrap items-center gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <div class="relative flex-1 min-w-[200px]">
+                    <input type="text" id="searchInput" placeholder="Search tabs..." 
+                        class="w-full px-4 py-2 pl-10 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none shadow-sm">
+                    <svg class="w-4 h-4 absolute left-3 top-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                </div>
+                
+                <button id="bulkRemoveBtn" class="hidden bg-red-50 text-red-600 border border-red-200 px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 hover:bg-red-100 transition">
+                    Remove Selected (<span id="selectCount">0</span>)
+                </button>
+
+                <button id="saveBtn" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 transition shadow-md">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
+                    Save as Standalone HTML
+                </button>
+
+                <button onclick="location.reload()" class="text-sm text-slate-500 hover:text-slate-800 font-medium">New File</button>
+            </div>
+        </div>
+
+        <!-- Results Area -->
+        <div id="output" class="space-y-12"></div>
+    </div>
+
+    <script>
+        const fileInput = document.getElementById('fileInput');
+        const uploadArea = document.getElementById('uploadArea');
+        const output = document.getElementById('output');
+        const controls = document.getElementById('controls');
+        const saveBtn = document.getElementById('saveBtn');
+        const bulkRemoveBtn = document.getElementById('bulkRemoveBtn');
+        const selectCountSpan = document.getElementById('selectCount');
+        
+        let allData = [];
+
+        uploadArea.onclick = () => fileInput.click();
+        uploadArea.ondragover = (e) => { e.preventDefault(); uploadArea.style.borderColor = "#3b82f6"; };
+        uploadArea.ondragleave = () => uploadArea.style.borderColor = "#e2e8f0";
+        uploadArea.ondrop = (e) => {
+            e.preventDefault();
+            if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+        };
+        fileInput.onchange = (e) => { if (fileInput.files.length) handleFile(fileInput.files[0]); };
+
+        function handleFile(file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const json = JSON.parse(e.target.result);
+                    allData = [];
+                    parseJson(json);
+                    uploadArea.classList.add('hidden');
+                    controls.classList.remove('hidden');
+                    render();
+                } catch (err) { alert("Error parsing file."); }
+            };
+            reader.readAsText(file);
+        }
+
+        function parseJson(obj) {
+            const sessions = obj.collections || obj.sessions || (Array.isArray(obj) ? obj : [obj]);
+            sessions.forEach((s, sIdx) => {
+                const dateVal = s.created || s.modified || Date.now();
+                const dateStr = new Date(dateVal).toLocaleString([], { 
+                    month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' 
+                });
+
+                let links = [];
+                if (s.folders) s.folders.forEach(f => links.push(...(f.links || [])));
+                else if (s.windows) s.windows.forEach(w => links.push(...(w.tabs || [])));
+                else if (s.links || s.tabs) links = s.links || s.tabs;
+
+                if (links.length > 0) {
+                    allData.push({
+                        id: sIdx,
+                        title: s.title || s.name || dateStr,
+                        date: dateStr,
+                        links: links.map((l, lIdx) => ({
+                            id: `${sIdx}-${lIdx}`,
+                            title: l.title || "No Title",
+                            url: l.url,
+                            icon: l.favIconUrl || `https://www.google.com/s2/favicons?sz=32&domain=${new URL(l.url).hostname}`
+                        }))
+                    });
+                }
+            });
+        }
+
+        function render(filteredTerm = "") {
+            let html = '';
+            allData.forEach((session, sIdx) => {
+                const filteredLinks = session.links.filter(l => 
+                    l.title.toLowerCase().includes(filteredTerm) || 
+                    l.url.toLowerCase().includes(filteredTerm)
+                );
+                if (filteredLinks.length === 0 && filteredTerm !== "") return;
+
+                html += `
+                    <div class="session-block mb-10" data-session-id="${session.id}">
+                        <div class="flex items-start gap-3 mb-4">
+                            <div class="mt-1 text-green-600">
+                                <svg class="w-8 h-8" viewBox="0 0 24 24" fill="currentColor"><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+                            </div>
+                            <div class="flex-1">
+                                <h2 class="text-2xl font-bold text-slate-800">${session.title}</h2>
+                                <div class="text-xs text-slate-500">
+                                    ${session.links.length} links • Created ${session.date}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2 text-xs font-bold text-slate-400 ml-12 mb-2 uppercase tracking-widest">
+                             <input type="checkbox" class="folder-checkbox rounded border-slate-300" onchange="toggleFolder(this, ${session.id})">
+                             Folder
+                        </div>
+                        <div class="ml-12 space-y-0.5">
+                            ${filteredLinks.map(link => `
+                                <div class="link-row flex items-center p-1.5 rounded-sm group" data-link-id="${link.id}">
+                                    <input type="checkbox" class="link-checkbox mr-3 rounded border-slate-300 no-print" onchange="updateSelectionCount()">
+                                    <img src="${link.icon}" class="w-4 h-4 mr-3 flex-shrink-0" onerror="this.style.display='none'">
+                                    <a href="${link.url}" target="_blank" class="text-[14px] text-slate-700 hover:text-blue-600 hover:underline truncate mr-4">
+                                        ${escapeHtml(link.title)}
+                                    </a>
+                                    <span class="url-text text-[12px] text-slate-400 truncate flex-1 font-light">
+                                        ${escapeHtml(link.url)}
+                                    </span>
+                                    <button onclick="removeSingle('${link.id}')" class="delete-single no-print px-2" title="Remove Link">
+                                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"></path></svg>
+                                    </button>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            });
+            output.innerHTML = html || `<p class="text-slate-400 text-center py-20">No bookmarks found.</p>`;
+            updateSelectionCount();
+        }
+
+        // --- Editing Logic ---
+
+        function removeSingle(linkId) {
+            allData = allData.map(session => ({
+                ...session,
+                links: session.links.filter(l => l.id !== linkId)
+            })).filter(session => session.links.length > 0);
+            render(document.getElementById('searchInput').value.toLowerCase());
+        }
+
+        function toggleFolder(el, sessionId) {
+            const block = document.querySelector(`[data-session-id="${sessionId}"]`);
+            const checkboxes = block.querySelectorAll('.link-checkbox');
+            checkboxes.forEach(cb => cb.checked = el.checked);
+            updateSelectionCount();
+        }
+
+        function updateSelectionCount() {
+            const selected = document.querySelectorAll('.link-checkbox:checked').length;
+            selectCountSpan.innerText = selected;
+            bulkRemoveBtn.classList.toggle('hidden', selected === 0);
+        }
+
+        bulkRemoveBtn.onclick = () => {
+            if (!confirm("Remove all selected links?")) return;
+            const checkedIds = Array.from(document.querySelectorAll('.link-checkbox:checked'))
+                .map(cb => cb.closest('.link-row').dataset.linkId);
+            
+            allData = allData.map(session => ({
+                ...session,
+                links: session.links.filter(l => !checkedIds.includes(l.id))
+            })).filter(session => session.links.length > 0);
+            
+            render(document.getElementById('searchInput').value.toLowerCase());
+        };
+
+        // --- Save Functionality ---
+        saveBtn.onclick = () => {
+            // Only export visible HTML (excluding checkboxes and delete buttons)
+            const cleanOutput = output.cloneNode(true);
+            cleanOutput.querySelectorAll('.no-print, input[type="checkbox"], .delete-single').forEach(el => el.remove());
+            
+            const sessionTitle = allData[0]?.title.replace(/[^a-z0-9]/gi, '_') || "Export";
+            const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${sessionTitle}</title><script src="https://cdn.tailwindcss.com"><\/script><style>body{font-family:sans-serif;padding:40px;color:#1e293b}.link-row{display:flex;align-items:center;padding:6px;border-radius:4px}.link-row:hover{background:#f1f5f9}.url-text{color:#94a3b8;font-size:12px;margin-left:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}a{text-decoration:none;color:#334155;font-size:14px}a:hover{text-decoration:underline;color:#2563eb}</style></head><body><div style="max-width:1000px;margin:auto;">${cleanOutput.innerHTML}</div></body></html>`;
+
+            const blob = new Blob([fullHtml], { type: 'text/html' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${sessionTitle}_Archive.html`;
+            a.click();
+            URL.revokeObjectURL(url);
+        };
+
+        document.getElementById('searchInput').oninput = (e) => render(e.target.value.toLowerCase());
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

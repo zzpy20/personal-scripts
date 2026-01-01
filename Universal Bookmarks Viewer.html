@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Universal Bookmarks HTML Viewer</title>
+    <style>
+        :root {
+            --bg-color: #f4f4f7;
+            --text-color: #333;
+            --accent-color: #2c72ea;
+            --hover-color: #eaeaea;
+            --folder-color: #FFC107;
+            --font-stack: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            font-family: var(--font-stack);
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 30px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+            box-sizing: border-box;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 25px;
+        }
+
+        h1 {
+            font-size: 22px;
+            margin: 0 0 8px 0;
+            font-weight: 600;
+        }
+
+        .subtitle {
+            font-size: 13px;
+            color: #777;
+        }
+
+        .upload-area {
+            margin-bottom: 20px;
+            background: white;
+            padding: 20px 30px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+
+        input[type="file"] {
+            font-size: 14px;
+        }
+
+        #viewer {
+            width: 100%;
+            max-width: 900px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            overflow: hidden;
+            border: 1px solid #e1e1e1;
+        }
+
+        #tree-container {
+            padding: 10px 20px 30px 20px;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        /* Tree Structure */
+        ul {
+            list-style: none;
+            padding-left: 22px; /* Indent for children */
+            margin: 0;
+            border-left: 1px solid #eee; /* Visual guide line */
+        }
+        
+        /* Root UL should not have a line */
+        #tree-container > ul {
+            border-left: none;
+            padding-left: 0;
+        }
+
+        li {
+            margin: 1px 0;
+        }
+
+        /* Items */
+        .item {
+            display: flex;
+            align-items: center;
+            padding: 5px 8px;
+            border-radius: 4px;
+            font-size: 14px;
+            text-decoration: none;
+            color: var(--text-color);
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .item:hover {
+            background-color: var(--hover-color);
+        }
+
+        /* Icons */
+        .icon {
+            width: 18px;
+            height: 18px;
+            margin-right: 8px;
+            flex-shrink: 0;
+        }
+        
+        .folder-icon { fill: var(--folder-color); }
+        .bookmark-icon { fill: #9aa0a6; }
+
+        /* Folders (Details/Summary) */
+        details > summary {
+            list-style: none;
+            outline: none;
+        }
+        details > summary::-webkit-details-marker {
+            display: none;
+        }
+
+        /* Custom Arrow */
+        .arrow {
+            display: inline-flex;
+            width: 16px;
+            height: 16px;
+            align-items: center;
+            justify-content: center;
+            margin-right: 2px;
+            color: #888;
+            font-size: 10px;
+            transition: transform 0.1s;
+        }
+        .arrow::before {
+            content: "▶"; 
+        }
+        details[open] > summary .arrow {
+            transform: rotate(90deg);
+        }
+
+        /* Links */
+        a.item {
+            color: var(--text-color);
+        }
+        a.item:hover span.label {
+            color: var(--accent-color);
+            text-decoration: underline;
+        }
+
+        /* Text handling */
+        .label {
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .meta {
+            margin-left: auto;
+            font-size: 11px;
+            color: #aaa;
+            padding-left: 10px;
+        }
+
+        .empty-state {
+            padding: 60px;
+            text-align: center;
+            color: #999;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Universal Bookmarks Viewer</h1>
+        <div class="subtitle">Supports HTML exports from Chrome, Edge, Safari, Brave</div>
+    </header>
+
+    <div class="upload-area">
+        <input type="file" id="fileInput" accept=".html,.htm">
+    </div>
+
+    <div id="viewer">
+        <div id="tree-container">
+            <div class="empty-state">Select your <b>bookmarks.html</b> file to begin.</div>
+        </div>
+    </div>
+
+    <!-- Icon Definitions -->
+    <svg style="display: none;">
+        <symbol id="icon-folder" viewBox="0 0 24 24">
+            <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+        </symbol>
+        <symbol id="icon-globe" viewBox="0 0 24 24">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+        </symbol>
+    </svg>
+
+    <script>
+        document.getElementById('fileInput').addEventListener('change', handleFileSelect);
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => processHTML(e.target.result);
+            reader.readAsText(file);
+        }
+
+        function processHTML(htmlString) {
+            const container = document.getElementById('tree-container');
+            container.innerHTML = ''; 
+
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(htmlString, "text/html");
+
+            // Netscape format usually has a main <DL> somewhere
+            const rootDl = doc.querySelector('dl');
+
+            if (!rootDl) {
+                container.innerHTML = '<div class="empty-state">Invalid format: Could not find bookmark list (DL tag).</div>';
+                return;
+            }
+
+            const rootUl = document.createElement('ul');
+            // We use a "Look Ahead" parser to handle Chrome's weird sibling structure
+            parseChildren(rootDl, rootUl);
+            container.appendChild(rootUl);
+        }
+
+        // Recursive function that handles both Nested and Sibling DLs
+        function parseChildren(dlNode, parentUl) {
+            // Get all Element children (skip text nodes)
+            const children = Array.from(dlNode.children);
+
+            for (let i = 0; i < children.length; i++) {
+                const node = children[i];
+                if (node.tagName === 'DT') {
+                    // Check for header (Folder) or anchor (Link)
+                    const h3 = node.querySelector('h3');
+                    const a = node.querySelector('a');
+
+                    if (h3) {
+                        // === FOLDER ===
+                        const title = h3.textContent;
+                        const li = document.createElement('li');
+                        const details = document.createElement('details');
+                        
+                        // Auto-open main bars
+                        const lowerTitle = title.toLowerCase();
+                        if (lowerTitle.includes('bar') || lowerTitle.includes('menu') || lowerTitle.includes('favorites')) {
+                            details.open = true;
+                        }
+
+                        // Summary (Folder Title)
+                        details.innerHTML = `
+                            <summary class="item">
+                                <span class="arrow"></span>
+                                <svg class="icon folder-icon"><use href="#icon-folder"></use></svg>
+                                <span class="label">${escapeHtml(title)}</span>
+                            </summary>
+                        `;
+
+                        // === FINDING THE CHILDREN ===
+                        // Challenge: Chrome sometimes puts the <DL> inside the <DT>, sometimes after it.
+                        let childDl = null;
+
+                        // 1. Check INSIDE the DT (Standard / Nested)
+                        // We use .children loop to find direct DL child, avoiding deeper nested DLs
+                        for(let child of node.children) {
+                            if(child.tagName === 'DL') {
+                                childDl = child;
+                                break;
+                            }
+                        }
+
+                        // 2. If not found, check the NEXT SIBLING (Chrome / Edge / IE)
+                        if (!childDl) {
+                            const nextNode = children[i + 1];
+                            if (nextNode && nextNode.tagName === 'DL') {
+                                childDl = nextNode;
+                                i++; // Skip the next node in the main loop since we are consuming it now
+                            }
+                        }
+
+                        // Create UL for folder items
+                        const folderUl = document.createElement('ul');
+                        if (childDl) {
+                            parseChildren(childDl, folderUl); // Recurse
+                        } else {
+                            folderUl.innerHTML = '<li style="padding:5px 28px; color:#999; font-style:italic;">(Empty)</li>';
+                        }
+                        
+                        details.appendChild(folderUl);
+                        li.appendChild(details);
+                        parentUl.appendChild(li);
+
+                    } else if (a) {
+                        // === BOOKMARK ===
+                        const title = a.textContent;
+                        const href = a.href;
+                        const dateNum = a.getAttribute('add_date');
+                        
+                        let dateStr = "";
+                        if (dateNum) {
+                            // Chrome uses seconds, Firefox microseconds. 
+                            // Usually HTML export is seconds.
+                            const ts = parseInt(dateNum);
+                            const date = new Date(ts > 100000000000 ? ts / 1000 : ts * 1000); 
+                            dateStr = date.toLocaleDateString();
+                        }
+
+                        const li = document.createElement('li');
+                        li.innerHTML = `
+                            <a href="${href}" target="_blank" class="item">
+                                <span style="width:16px; margin-right:2px;"></span> <!-- Spacer for alignment -->
+                                <svg class="icon bookmark-icon"><use href="#icon-globe"></use></svg>
+                                <span class="label">${escapeHtml(title)}</span>
+                                ${dateStr ? `<span class="meta">${dateStr}</span>` : ''}
+                            </a>
+                        `;
+                        parentUl.appendChild(li);
+                    }
+                }
+            }
+        }
+
+        function escapeHtml(text) {
+            if (!text) return text;
+            return text
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+    </script>
+</body>
+</html>
