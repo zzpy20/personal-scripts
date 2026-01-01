@@ -1,4 +1,4 @@
-name: Auto-update README file tree
+name: Auto-update README (tools + links + tree)
 
 on:
   push:
@@ -9,40 +9,65 @@ permissions:
   contents: write
 
 jobs:
-  update-tree:
+  update-readme:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - run: sudo apt-get update && sudo apt-get install -y tree
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y tree
 
-      - name: Update README.md (replace block; append if missing)
+      - name: Generate README sections
+        env:
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
 
-          START="<!-- FILE_TREE_START -->"
-          END="<!-- FILE_TREE_END -->"
+          # Repo slug: zzpy20/personal-scripts
+          OWNER="${REPO%/*}"
+          NAME="${REPO#*/}"
+          PAGES_BASE="https://${OWNER}.github.io/${NAME}/"
 
-          TREE="$(tree -a -L 2 -I '.git|node_modules' | sed 's/\r$//')"
+          # 1) Tools list from *.html (excluding index.html)
+          # Keep stable ordering
+          mapfile -t HTMLS < <(find . -maxdepth 1 -type f -name "*.html" -printf "%f\n" | sort)
 
-          # Ensure markers exist; if not, append a new section
-          if ! grep -qF "$START" README.md || ! grep -qF "$END" README.md; then
-            cat >> README.md <<'EOF'
+          TOOLS_MD=""
+          for f in "${HTMLS[@]}"; do
+            if [[ "$f" == "index.html" ]]; then
+              continue
+            fi
+            # URL encode spaces only (good enough for your current filenames)
+            url="${f// /%20}"
+            title="${f%.html}"
+            TOOLS_MD+="- **${title}** — [Open](${PAGES_BASE}${url})\n"
+          done
 
-          ## 📁 File Structure
-
-          <!-- FILE_TREE_START -->
-          ```text
-          (auto-generated)
-          ```
-          <!-- FILE_TREE_END -->
-          EOF
+          if [[ -z "$TOOLS_MD" ]]; then
+            TOOLS_MD="(No tools found)\n"
           fi
 
-          # Replace content between markers
-          perl -0777 -i -pe 'BEGIN{$/ = undef} s/<!-- FILE_TREE_START -->.*?<!-- FILE_TREE_END -->/<!-- FILE_TREE_START -->\n```text\n'"$TREE"'\n```\n<!-- FILE_TREE_END -->/s' README.md
+          # 2) File tree (ignore noise)
+          TREE="$(tree -a -L 3 -I '.git|.github|node_modules|README.md|LICENSE|.DS_Store' | sed 's/\r$//')"
+
+          # 3) Replace blocks in README
+          replace_block () {
+            local start="$1"
+            local end="$2"
+            local content="$3"
+
+            # Append markers if missing
+            if ! grep -qF "$start" README.md || ! grep -qF "$end" README.md; then
+              printf "\n%s\n```text\n(auto-generated)\n```\n%s\n" "$start" "$end" >> README.md
+            fi
+
+            perl -0777 -i -pe "s/\\Q$start\\E.*?\\Q$end\\E/$start\n$content\n$end/s" README.md
+          }
+
+          replace_block "<!-- TOOLS_START -->" "<!-- TOOLS_END -->" "### 🌐 Live Tools (GitHub Pages)\n\n${TOOLS_MD}"
+          replace_block "<!-- FILE_TREE_START -->" "<!-- FILE_TREE_END -->" "```text\n${TREE}\n```"
 
       - uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "chore: auto-update file tree"
+          commit_message: "chore: auto-update README (tools + tree)"
           file_pattern: README.md
