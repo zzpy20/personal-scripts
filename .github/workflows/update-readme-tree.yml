@@ -36,18 +36,24 @@ jobs:
 
           TREE="$(tree -a -L 2 -I '.git|.github|node_modules|.DS_Store')"
 
-          # Show what we're about to inject (first 2000 chars)
-          echo "=== TREE VAR (first 2000 chars) ==="
-          printf "%s\n" "$TREE" | head -c 2000
-          echo ""
+          # If markers missing, append them
+          if ! grep -qF "$START" README.md || ! grep -qF "$END" README.md; then
+            cat >> README.md <<'EOF'
 
-          # Replace block strictly between markers
-          perl -0777 -i -pe "s/\Q$START\E.*?\Q$END\E/$START\n```text\n$TREE\n```\n$END/s" README.md
+          ## 📁 File Structure
 
-          echo "=== README AFTER UPDATE (FILE_TREE block) ==="
-          perl -0777 -ne 'print $1 if /<!-- FILE_TREE_START -->(.*?)<!-- FILE_TREE_END -->/s' README.md
+          <!-- FILE_TREE_START -->
+          ```text
+          (auto-generated)
+          ```
+          <!-- FILE_TREE_END -->
+          EOF
+          fi
 
-      - uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "chore: auto-update README file tree"
-          file_pattern: README.md
+          # Rebuild the block by splitting file into: before START, block, after END
+          awk -v start="$START" -v end="$END" -v tree="$TREE" '
+            BEGIN {in=0}
+            $0==start {print; print "```text"; print tree; print "```"; in=1; next}
+            $0==end   {in=0; print; next}
+            in==0 {print}
+          ' README.md > README.tmp && mv README.tmp README.md
