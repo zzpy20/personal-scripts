@@ -1,0 +1,52 @@
+name: Auto-update README file tree
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-tree:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install tree
+        run: sudo apt-get update && sudo apt-get install -y tree
+
+      - name: Update README.md (keep content, replace tree block)
+        run: |
+          set -euo pipefail
+
+          START="<!-- FILE_TREE_START -->"
+          END="<!-- FILE_TREE_END -->"
+
+          TREE_CONTENT="$(tree -a -I '.git|.github|node_modules' -L 2)"
+
+          # If markers don't exist, append a new section.
+          if ! grep -qF "$START" README.md; then
+            {
+              echo ""
+              echo "## 📁 File Structure"
+              echo ""
+              echo "$START"
+              echo '```'
+              echo "$TREE_CONTENT"
+              echo '```'
+              echo "$END"
+              echo ""
+            } >> README.md
+          else
+            # Replace content between markers (inclusive)
+            perl -0777 -pe "s/\Q$START\E.*?\Q$END\E/$START\n```\n$TREE_CONTENT\n```\n$END/sm" -i README.md
+          fi
+
+      - name: Commit changes (if any)
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: update file tree in README"
+          file_pattern: README.md
