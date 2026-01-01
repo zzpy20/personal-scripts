@@ -12,7 +12,8 @@ jobs:
   update-readme:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Install tree
         run: sudo apt-get update && sudo apt-get install -y tree
@@ -22,9 +23,9 @@ jobs:
           set -euo pipefail
           echo "=== PWD ==="
           pwd
-          echo "=== LS ==="
+          echo "=== FILE LIST ==="
           ls -la
-          echo "=== TREE OUTPUT (will be inserted) ==="
+          echo "=== TREE OUTPUT ==="
           tree -a -L 2 -I '.git|.github|node_modules|.DS_Store' || true
 
       - name: Update README.md
@@ -36,7 +37,7 @@ jobs:
 
           TREE="$(tree -a -L 2 -I '.git|.github|node_modules|.DS_Store')"
 
-          # If markers missing, append them
+          # If markers do not exist, append a standard block
           if ! grep -qF "$START" README.md || ! grep -qF "$END" README.md; then
             cat >> README.md <<'EOF'
 
@@ -50,10 +51,27 @@ jobs:
           EOF
           fi
 
-          # Rebuild the block by splitting file into: before START, block, after END
+          # Rebuild README by replacing content strictly between markers
           awk -v start="$START" -v end="$END" -v tree="$TREE" '
-            BEGIN {in=0}
-            $0==start {print; print "```text"; print tree; print "```"; in=1; next}
-            $0==end   {in=0; print; next}
-            in==0 {print}
+            BEGIN {inblock=0}
+            $0==start {
+              print;
+              print "```text";
+              print tree;
+              print "```";
+              inblock=1;
+              next
+            }
+            $0==end {
+              inblock=0;
+              print;
+              next
+            }
+            inblock==0 { print }
           ' README.md > README.tmp && mv README.tmp README.md
+
+      - name: Commit changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: auto-update README file tree"
+          file_pattern: README.md
