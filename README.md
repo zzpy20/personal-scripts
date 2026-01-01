@@ -7,3 +7,4 @@ Personal, self-contained HTML tools.
 <!-- FILE_TREE_START -->
 ```text
 (auto-generated)
+<!-- FILE_TREE_END -->
